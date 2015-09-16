@@ -32,10 +32,10 @@ struct particle
 	vec2 pos;
 	vec2 prev;
 	vec2 vel;
-	vector<int> neighbors;
-	float change = 0;
 };
 vector<particle> parts;
+
+vector<int> grid[mapW][mapH];
 
 int walls[mapW][mapH];
 
@@ -49,15 +49,23 @@ float nrand()
 void setup()
 {
 	float dx = 2;
-	for (float x = 0; x < mapW / 4; x += dx)
+	for (float x = 0; x < mapW / 2; x += dx)
 	{
 		for (float y = 0; y < mapH; y += dx)
 		{
 			particle p;
-			p.pos = p.prev = vec2(x + dx / 2, y + dx / 2);
+			p.pos = p.prev = vec2(x + dx / 2, y + dx / 2) + vec2(nrand(), nrand()) / 10.f;
 			p.vel = vec2();
 
 			parts.push_back(p);
+		}
+	}
+
+	for (int y = 0; y < mapH; ++y)
+	{
+		for (int x = 0; x < mapW; ++x)
+		{
+			grid[x][y].reserve(20);
 		}
 	}
 }
@@ -77,41 +85,36 @@ void spawnSquare(int xpos, int ypos, int r)
 	}
 }
 
-void createWalls()
-{
-	for (int x = mapW / 2; x < mapW / 2 + 20; ++x)
-	{
-		for (int y = 0; y < mapH / 8; ++y)
-		{
-			//walls[x][y] = 1;
-		}
-	}
-}
-
 float k = 10;
 float k_near = 20;
 float rho_0 = 3;
 float h = 5;
 void doubleDensityRelaxation()
-{
+{ 
 	for (int i = 0; i < parts.size(); ++i)
 	{
 		particle& p_i = parts[i];
 		
 		float rho = 0;
 		float rho_near = 0;
-
+		
 		// compute density and near-density
-		for (int j : p_i.neighbors)
+		for (int y = max(0.f, p_i.pos.y / h - 1); y <= min(mapH - 1, p_i.pos.y / h + 1); ++y)
 		{
-			if (i == j)
-				continue;
-
-			float q = length(p_i.pos - parts[j].pos) / h;
-			if (q < 1)
+			for (int x = max(0.f, p_i.pos.x / h - 1); x <= min(mapW - 1, p_i.pos.x / h + 1); ++x)
 			{
-				rho = rho + (1 - q) * (1 - q);
-				rho_near = rho_near + pow(1 - q, 3);
+				for (int j : grid[x][y])
+				{
+					if (i == j)
+						continue;
+
+					float q = length(p_i.pos - parts[j].pos) / h;
+					if (q < 1)
+					{
+						rho = rho + (1 - q) * (1 - q);
+						rho_near = rho_near + pow(1 - q, 3);
+					}
+				}
 			}
 		}
 
@@ -121,18 +124,24 @@ void doubleDensityRelaxation()
 
 		// apply displacements
 		vec2 dx = vec2();
-		for (int j : p_i.neighbors)
+		for (int y = max(0.f, p_i.pos.y / h - 1); y <= min(mapH - 1, p_i.pos.y / h + 1); ++y)
 		{
-			if (i == j)
-				continue;
-
-			float q = length(parts[j].pos - p_i.pos) / h;
-			if (q < 1)
+			for (int x = max(0.f, p_i.pos.x / h - 1); x <= min(mapW - 1, p_i.pos.x / h + 1); ++x)
 			{
-				vec2 D = dt * dt * (P * (1 - q) + P_near * (1 - q) * (1 - q)) * (parts[j].pos - p_i.pos);
-				parts[j].pos += D / 2.f;
-				dx -= D / 2.f;
+				for (int j : grid[x][y])
+				{
+					if (i == j)
+						continue;
 
+					float q = length(parts[j].pos - p_i.pos) / h;
+					if (q < 1)
+					{
+						vec2 D = dt * dt * (P * (1 - q) + P_near * (1 - q) * (1 - q)) * (parts[j].pos - p_i.pos);
+						parts[j].pos += D / 2.f;
+						dx -= D / 2.f;
+
+					}
+				}
 			}
 		}
 
@@ -142,22 +151,17 @@ void doubleDensityRelaxation()
 
 void findNeighbors()
 {
-	for (particle& p : parts)
-		p.neighbors.clear();
+	for (int y = 0; y < mapH; ++y)
+	{
+		for (int x = 0; x < mapW; ++x)
+		{
+			grid[x][y].clear();
+		}
+	}
 
 	for (int i = 0; i < parts.size(); ++i)
 	{
-		for (int j = i + 1; j < parts.size(); ++j)
-		{
-			vec2 r = parts[j].pos - parts[i].pos;
-			float r_2 = dot(r, r);
-
-			if (r_2 < h * h)
-			{
-				parts[i].neighbors.push_back(j);
-				parts[j].neighbors.push_back(i);
-			}
-		}
+		grid[(int)(parts[i].pos.x / h)][(int)(parts[i].pos.y / h)].push_back(i);
 	}
 }
 
@@ -208,7 +212,7 @@ void enforceBoundary()
 		vec2 dist = p.pos - c;
 		if (dot(dist, dist) < r * r)
 		{
-			p.pos = c + normalize(dist) * r;
+			p.pos = c + normalize(dist) * (r + nrand() / 50);
 		}
 		iter += 0.000005;
 	}
@@ -250,9 +254,6 @@ void update()
 	// correct velocity
 	for (particle& p : parts)
 	{
-		p.change *= 0.99;
-		p.change += length(p.vel - (p.pos - p.prev) / dt);
-
 		p.vel = (p.pos - p.prev) / dt;
 	}
 
@@ -433,7 +434,7 @@ void draw()
 	}
 	glEnd();
 
-	glColor3f(0, 1, 0);
+	/*glColor3f(0, 1, 0);
 	glBegin(GL_QUADS);
 	{
 		for (int y = 0; y < mapH; ++y)
@@ -450,7 +451,7 @@ void draw()
 			}
 		}
 	}
-	glEnd();
+	glEnd();*/
 
 	/*glPointSize(2);
 	glColor3f(1, 1, 1);
@@ -489,15 +490,6 @@ int main()
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
 	setup();
-
-	for (int y = 0; y < mapH; ++y)
-	{
-		for (int x = 0; x < mapW; ++x)
-		{
-			walls[x][y] = 0;
-		}
-	}
-	createWalls();
 
 	// main loop
 	auto currentTime = chrono::high_resolution_clock::now();
