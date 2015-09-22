@@ -30,8 +30,9 @@ float PI = 3.14159;
 struct particle
 {
 	vec2 pos;
-	vec2 prev;
 	vec2 vel;
+	float density;
+	float pressure;
 };
 vector<particle> parts;
 
@@ -41,20 +42,70 @@ int walls[mapW][mapH];
 
 GLFWwindow* window;
 
+float k = 10;
+float k_near = 20;
+float rho_0 = 2;
+float h = 20;
+
 float nrand()
 {
 	return (float)rand() / RAND_MAX;
 }
 
+// W(r) = 15 / (PI * h^6) * (h - r)^3
+float Wspiky(vec2 r)
+{
+	float coef = 15 / (PI * pow(h, 6));
+
+	float len_r = r.length();
+	
+	if (len_r <= h)
+		return coef * pow(h - len_r, 3);
+	return 0;
+}
+vec2 del_Wspiky(vec2 r)
+{
+	float len_r = r.length();
+	len_r = max(0.01f, len_r);
+	
+	float coef = -45 * pow(h - len_r, 2) / (PI * pow(h, 6) * len_r);
+
+	if (len_r <= h)
+		return r * coef;
+	return vec2();
+}
+
+// W(r) = 315 / (64 * PI * h^9) * (h^2 - r^2)^3
+float Wpoly6(vec2 r)
+{
+	float coef = 315 / (64 * PI * pow(h, 9));
+
+	float len_r_2 = dot(r, r);
+
+	if (len_r_2 <= h * h)
+		return coef * pow(h * h - len_r_2, 3);
+	return 0;
+}
+vec2 del_Wpoly6(vec2 r)
+{
+	float len_r_2 = dot(r, r);
+
+	float coef = -945 * pow(h*h - len_r_2, 2) / (32 * PI * pow(h, 9));
+
+	if (len_r_2 <= h * h)
+		return r * coef;
+	return vec2();
+}
+
 void setup()
 {
 	float dx = 2;
-	for (float x = 0; x < mapW / 2; x += dx)
+	for (float x = 0; x < mapW / 4; x += dx)
 	{
-		for (float y = 0; y < mapH; y += dx)
+		for (float y = 0; y < mapH / 1; y += dx)
 		{
 			particle p;
-			p.pos = p.prev = vec2(x + dx / 2, y + dx / 2) + vec2(nrand(), nrand()) / 10.f;
+			p.pos = vec2(x + dx / 2, y + dx / 2) + vec2(nrand(), nrand()) / 10.f;
 			p.vel = vec2();
 
 			parts.push_back(p);
@@ -70,88 +121,56 @@ void setup()
 	}
 }
 
-void spawnSquare(int xpos, int ypos, int r)
+void pressureComputation()
 {
-	for (int x = xpos - r; x < xpos + r; x += 4)
-	{
-		for (int y = ypos - r; y < ypos + r; y += 4)
-		{
-			particle p;
-			p.pos = p.prev = vec2(x + 0.5, y + 0.5);
-			p.vel = vec2();
-
-			parts.push_back(p);
-		}
-	}
-}
-
-float k = 10;
-float k_near = 20;
-float rho_0 = 3;
-float h = 5;
-void doubleDensityRelaxation()
-{ 
+	for (int i = 0; i < parts.size(); ++i)
+		parts[i].density = 0;
+	
 	for (int i = 0; i < parts.size(); ++i)
 	{
-		particle& p_i = parts[i];
-		
-		float rho = 0;
-		float rho_near = 0;
-		
-		// compute density and near-density
-		for (int y = max(0.f, p_i.pos.y / h - 1); y <= min(mapH - 1, p_i.pos.y / h + 1); ++y)
+		for (int j = 0; j < parts.size(); ++j)
 		{
-			for (int x = max(0.f, p_i.pos.x / h - 1); x <= min(mapW - 1, p_i.pos.x / h + 1); ++x)
-			{
-				for (int j : grid[x][y])
-				{
-					if (i == j)
-						continue;
+			if (i == j)
+				continue;
 
-					float q = length(p_i.pos - parts[j].pos) / h;
-					if (q < 1)
-					{
-						rho = rho + (1 - q) * (1 - q);
-						rho_near = rho_near + pow(1 - q, 3);
-					}
-				}
-			}
+			parts[i].density += Wpoly6(parts[i].pos - parts[j].pos);
+		}
+		//parts[i].pressure = k * (pow(parts[i].density / rho_0, 7) - 1);
+		parts[i].pressure = k * (parts[i].density - rho_0);
+	}
+
+	for (int i = 0; i < parts.size(); ++i)
+	{
+		vec2 del_p = vec2();
+
+		if (parts[i].density <= 0.005)
+			continue;
+
+		for (int j = 0; j < parts.size(); ++j)
+		{
+			if (i == j)
+				continue;
+
+			vec2 r = parts[i].pos - parts[j].pos;
+			if (dot(r, r) > h * h)
+				continue;
+			if (parts[j].density <= 0.005)
+				continue;
+
+			del_p = del_p + (parts[i].pressure + parts[j].pressure) / (2 * parts[i].density) *del_Wspiky(r);
+
+			//del_p += parts[j].pressure / parts[j].density * del_Wspiky(parts[i].pos - parts[j].pos);
+			//del_p += (parts[j].pressure / (parts[j].density * parts[j].density) + parts[i].pressure / (parts[i].density * parts[i].density)) * del_Wspiky(parts[i].pos - parts[j].pos);
 		}
 
-		// compute pressure and near-pressure
-		float P = k * (rho - rho_0);
-		float P_near = k_near * rho_near;
-
-		// apply displacements
-		vec2 dx = vec2();
-		for (int y = max(0.f, p_i.pos.y / h - 1); y <= min(mapH - 1, p_i.pos.y / h + 1); ++y)
-		{
-			for (int x = max(0.f, p_i.pos.x / h - 1); x <= min(mapW - 1, p_i.pos.x / h + 1); ++x)
-			{
-				for (int j : grid[x][y])
-				{
-					if (i == j)
-						continue;
-
-					float q = length(parts[j].pos - p_i.pos) / h;
-					if (q < 1)
-					{
-						vec2 D = dt * dt * (P * (1 - q) + P_near * (1 - q) * (1 - q)) * (parts[j].pos - p_i.pos);
-						parts[j].pos += D / 2.f;
-						dx -= D / 2.f;
-
-					}
-				}
-			}
-		}
-
-		p_i.pos += dx;
+		//printf("%f\n", del_p.y);
+		parts[i].vel += (-del_p / parts[i].density) * dt;
 	}
 }
 
 void findNeighbors()
 {
-	for (int y = 0; y < mapH; ++y)
+	/*for (int y = 0; y < mapH; ++y)
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
@@ -162,15 +181,35 @@ void findNeighbors()
 	for (int i = 0; i < parts.size(); ++i)
 	{
 		grid[(int)(parts[i].pos.x / h)][(int)(parts[i].pos.y / h)].push_back(i);
-	}
+	}*/
+
+	/*for (int i = 0; i < parts.size(); ++i)
+		parts[i].neighbors.clear();
+
+	for (int i = 0; i < parts.size(); ++i)
+	{
+		for (int j = i + 1; j < parts.size(); ++j)
+		{
+			vec2 r = parts[j].pos - parts[i].pos;
+			float len = dot(r, r) / (h * h);
+			if (len < 1)
+			{
+				parts[j].neighbors.push_back(i);
+				parts[i].neighbors.push_back(j);
+			}
+		}
+	}*/
 }
 
 void enforceBoundary()
 {
 	for (particle& p : parts)
 	{
-		if (p.pos.y < 0)
-			p.pos.y = 0.01;
+		//printf("%f\n", p.pos.y);
+		if (p.pos.y < 0.0)
+		{
+			p.pos.y = 0.0;
+		}
 		if (p.pos.y > mapH - 0.01)
 			p.pos.y = mapH - 0.1;
 		if (p.pos.x < 0.01)
@@ -178,33 +217,7 @@ void enforceBoundary()
 		if (p.pos.x > mapW - 0.01)
 			p.pos.x = mapW - 0.01;
 
-		/*int wall = walls[(int)p.pos.x][(int)p.pos.y];
-		if (wall != 0)
-		{
-			float xRel = p.pos.x - (int)p.pos.x;
-			float yRel = p.pos.y - (int)p.pos.y;
-			if (yRel > xRel && yRel < 1 - xRel)
-				p.pos.x = (int)p.pos.x;
-			if (yRel < xRel && yRel > 1 - xRel)
-				p.pos.x = (int)p.pos.x + 1;
-			if (yRel > xRel && yRel > 1 - xRel)
-				p.pos.y = (int)p.pos.y + 1;
-		}*/
-		/*float l = mapW / 2;
-		float r = mapW / 2 + 20;
-		float b = 0;
-		float t = mapH / 4;
-		float slope = (t - b) / (r - l);
-		if (l < p.pos.x && p.pos.x < r &&
-			b < p.pos.y && p.pos.y < t)
-		{
-			float xRel = p.pos.x - l;
-			float yRel = p.pos.y - b;
-
-			if (yRel >= slope * xRel && yRel <= slope * (1 - xRel))
-				p.pos.x = l;
-		}*/
-		static float iter = 0;
+		/*static float iter = 0;
 		//vec2 c = vec2(mapW / 2 + cos(iter) * 30, mapH / 8 + 10);
 		vec2 c = vec2(3 * mapW / 4, mapH / 8 + 10);
 
@@ -214,50 +227,39 @@ void enforceBoundary()
 		{
 			p.pos = c + normalize(dist) * (r + nrand() / 50);
 		}
-		iter += 0.000005;
+		iter += 0.000005;*/
 	}
 }
 
 int iter = 0;
 void update()
 {
-	if (iter == 0)
+	/*if (iter == 0)
 	{
 		if (!GetAsyncKeyState(VK_RETURN))
 			return;
 		++iter;
-	}
+	}*/
+
+	//findNeighbors();
+
+	pressureComputation();
 
 	// apply gravity
 	vec2 grav = normalize(vec2(0, -1)) * 9.81f;
 	for (particle& p : parts)
-		p.vel = p.vel + grav * dt;
-
-	// apply viscosity
+		p.vel += grav * dt / p.density;
 
 	// advect
 	for (particle& p : parts)
 	{
-		p.prev = p.pos;
 		p.pos = p.pos + p.vel * dt;
+		//p.vel *= 0.99f;
 	}
-
-	findNeighbors();
-
-	// relaxation
-	doubleDensityRelaxation();
-
-	// resolve collisions
 
 	enforceBoundary();
 
-	// correct velocity
-	for (particle& p : parts)
-	{
-		p.vel = (p.pos - p.prev) / dt;
-	}
-
-	if (GetAsyncKeyState('K'))
+	/*if (GetAsyncKeyState('K'))
 		k += 0.2;
 	if (GetAsyncKeyState('M'))
 		k -= 0.2;
@@ -281,7 +283,7 @@ void update()
 	printf("k_near: %f\n", k_near);
 	printf("rho_0: %f\n", rho_0);
 	printf("h: %f\n", h);
-	printf("-----------------\n");
+	printf("-----------------\n");*/
 
 	// diagnostics
 	{
@@ -308,8 +310,6 @@ void update()
 		{
 			if (isPressed && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == 0)
 			{
-				spawnSquare(rx, ry, 20);
-				//vel[(int)rx][(int)ry] += p;
 			}
 		}
 
@@ -319,24 +319,6 @@ void update()
 	}
 }
 
-void drawCircle(vec2 pos, float r)
-{
-	glPushMatrix();
-	{
-		glTranslatef(pos.x, pos.y, 0);
-
-		glBegin(GL_LINE_STRIP);
-		{
-			glVertex2f(r, 0);
-			for (int i = 1; i < 8; ++i)
-				glVertex2f(r * cos(2 * PI * i / 8), r * sin(2 * PI * i / 8));
-			glVertex2f(r, 0);
-		}
-		glEnd();
-	}
-	glPopMatrix();
-}
-float fluid[mapW][mapH];
 void draw()
 {
 	glViewport(0, 0, windowW, windowH);
@@ -347,122 +329,19 @@ void draw()
 	glScalef(2, 2, 1);
 	glScalef(1.f / mapW, 1.f / mapH, 1);
 
-	for (int y = 0; y < mapH; ++y)
-		for (int x = 0; x < mapW; ++x)
-			fluid[x][y] = 0;
-	for (particle p : parts)
-	{
-		float rad = h * 5;
-		for (int x = max(0.f, p.pos.x - rad); x <= min(mapW - 0.001, p.pos.x + rad); ++x)
-		{
-			for (int y = max(0.f, p.pos.y - rad); y <= min(mapH - 0.001, p.pos.y + rad); ++y)
-			{
-				fluid[x][y] += pow(1 - min(1.f, length(vec2(x, y) - p.pos) / h), 2);
-			}
-		}
-	}
-	for (int y = 0; y < mapH; ++y)
-		for (int x = 0; x < mapW; ++x)
-			fluid[x][y] = sqrt(fluid[x][y]);
-
-	glColor3f(0, 0, 1);
-	glBegin(GL_QUADS);
-	{
-		for (int y = 0; y < mapH; ++y)
-		{
-			for (int x = 0; x < mapW; ++x)
-			{
-				float cutoff = 0.8;
-				if (fluid[x][y] > cutoff)
-				{
-					glColor3f(1 - fluid[x][y], 1 - fluid[x][y], 1);
-					glVertex2f(x, y);
-					glVertex2f(x + 1, y);
-					glVertex2f(x + 1, y + 1);
-					glVertex2f(x, y + 1);
-				}
-				/*else
-				{
-					if (y > 0 && x > 0)
-					{
-						if (fluid[x][y - 1] > cutoff && fluid[x - 1][y] > cutoff)
-						{
-							float f = (fluid[x][y - 1] + fluid[x - 1][y]) / 2;
-							glColor3f(1 - f, 1 - f, 1);
-							glVertex2f(x, y);
-							glVertex2f(x + 1, y);
-							glVertex2f(x, y + 1);
-							glVertex2f(x, y);
-						}
-					}
-					if (y > 0 && x < mapW)
-					{
-						if (fluid[x][y - 1] > cutoff && fluid[x + 1][y] > cutoff)
-						{
-							glColor3f(0, 0, (fluid[x][y - 1] + fluid[x + 1][y]) / 2);
-							glVertex2f(x, y);
-							glVertex2f(x + 1, y);
-							glVertex2f(x + 1, y + 1);
-							glVertex2f(x, y);
-						}
-					}
-					if (y < mapH && x > 0)
-					{
-						if (fluid[x][y + 1] > cutoff && fluid[x - 1][y] > cutoff)
-						{
-							glColor3f(0, 0, (fluid[x][y + 1] + fluid[x - 1][y]) / 2);
-							glVertex2f(x, y);
-							glVertex2f(x + 1, y + 1);
-							glVertex2f(x, y + 1);
-							glVertex2f(x, y);
-						}
-					}
-					if (y < mapH && x < mapW)
-					{
-						if (fluid[x][y + 1] > cutoff && fluid[x + 1][y] > cutoff)
-						{
-							glColor3f(0, 0, (fluid[x][y + 1] + fluid[x + 1][y]) / 2);
-							glVertex2f(x + 1, y);
-							glVertex2f(x + 1, y + 1);
-							glVertex2f(x, y + 1);
-							glVertex2f(x + 1, y);
-						}
-					}
-				}*/
-			}
-		}
-	}
-	glEnd();
-
-	/*glColor3f(0, 1, 0);
-	glBegin(GL_QUADS);
-	{
-		for (int y = 0; y < mapH; ++y)
-		{
-			for (int x = 0; x < mapW; ++x)
-			{
-				if (walls[x][y] > 0)
-				{
-					glVertex2f(x, y);
-					glVertex2f(x + 1, y);
-					glVertex2f(x + 1, y + 1);
-					glVertex2f(x, y + 1);
-				}
-			}
-		}
-	}
-	glEnd();*/
-
-	/*glPointSize(2);
+	glPointSize(2);
 	glColor3f(1, 1, 1);
 	glBegin(GL_POINTS);
 	{
 		for (particle p : parts)
+		{
+			float f = p.density / 50;
+			glColor3f(f, 0, 1 - f);
 			glVertex2f(p.pos.x, p.pos.y);
+			//printf("%f\n", p.pos.x);
+		}
 	}
 	glEnd();
-	/*for (particle p : parts)
-		drawCircle(p.pos, 1.5);*/
 }
 
 int main()
@@ -497,13 +376,16 @@ int main()
 	while (!glfwWindowShouldClose(window))
 	{
 		auto newTime = chrono::high_resolution_clock::now();
-		float frameTime = chrono::duration_cast<chrono::milliseconds>(newTime - currentTime).count();
+		float frameTime = chrono::duration_cast<chrono::nanoseconds>(newTime - currentTime).count() / 1.0e9;
+		currentTime = newTime;
 
-		if (frameTime >= dt)
+		accumulator += frameTime;
+
+		if (accumulator >= dt)
 		{
 			update();
 
-			currentTime = newTime;
+			accumulator = 0;
 		}
 
 		draw();
