@@ -89,7 +89,7 @@ void createWalls()
 }
 
 float k = 10;
-float k_near = 20; //20;
+float k_near = 20;
 float rho_0 = 3;
 float h = 2.5 * 1.5; //5 / 4.0f; // 2.55;
 void doubleDensityRelaxation()
@@ -103,23 +103,15 @@ void doubleDensityRelaxation()
 
 		vec2 wallParticle = vec2();
 		{
-			float abs_x = abs(p_i.pos.x - mapW / 2);
-			float sign_x = (p_i.pos.x > mapW / 2) ? 1.0f : -1.0f;
 			float abs_y = abs(p_i.pos.y - mapH / 2);
-			float sign_y = (p_i.pos.y > mapH / 2) ? 1.0f : -1.0f;
+			float sign_y = (p_i.pos.y > 0) ? 1.0f : 0.0f;
 			
-			float dx = abs(mapH / 2 - abs_x);
-			float dy = abs(mapH / 2 - abs_y);
+			float dx = 80000;
+			float dy = mapH / 2 - abs_y;
 			if (dy < dx)
 			{
 				wallParticle.x = p_i.pos.x;
 				wallParticle.y = mapH / 2 + (mapH / 2) * sign_y;
-				//printf("setting wall particle: %f, %f\n", (double)p_i.pos.y, (double)wallParticle.y);
-			}
-			else
-			{
-				wallParticle.x = mapW / 2 + (mapW / 2) * sign_x;
-				wallParticle.y = p_i.pos.y;
 			}
 		}
 
@@ -165,8 +157,8 @@ void doubleDensityRelaxation()
 		if (q < 1)
 		{
 			vec2 D = dt * dt * (P * (1 - q) + P_near * (1 - q) * (1 - q)) * (wallParticle - p_i.pos);
-			//parts[i].pos -= D / 2.f;
-			dx -= D / 1.f;
+			parts[j].pos += D / 2.f;
+			dx -= D / 2.f;
 		}
 
 		p_i.pos += dx;
