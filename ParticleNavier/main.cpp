@@ -9,7 +9,7 @@
 #pragma comment(lib, "opengl32.lib")
 #pragma comment(lib, "GLFW/glfw3dll.lib")
 
-#include <glm\glm.hpp>
+#include "glm\glm.hpp"
 
 #include <Windows.h>
 #undef max
@@ -90,8 +90,8 @@ void createWalls()
 
 float k = 10;
 float k_near = 20; //20;
-float rho_0 = 3;
-float h = 2.5 * 1.5; //5 / 4.0f; // 2.55;
+float rho_0 = 5;
+float h = 3.5 * 1.5; //5 / 4.0f; // 2.55;
 void doubleDensityRelaxation()
 {
 	for (int i = 0; i < parts.size(); ++i)
@@ -178,7 +178,7 @@ void findNeighbors()
 	for (particle& p : parts)
 		p.neighbors.clear();
 
-	/*int gridW = mapW / h + 1;
+	int gridW = mapW / h + 1;
 	int gridH = mapH / h + 1;
 	vector<int> *grid = new vector<int>[(int)(gridW * gridH)];
 	for (int i = 0; i < parts.size(); ++i)
@@ -206,9 +206,9 @@ void findNeighbors()
 					p_i.neighbors.insert(p_i.neighbors.end(), grid[yi * gridW + xi].begin(), grid[yi * gridW + xi].end());
 			}
 		}
-	}*/
+	}
 
-	for (int i = 0; i < parts.size(); ++i)
+	/*for (int i = 0; i < parts.size(); ++i)
 	{
 		for (int j = i + 1; j < parts.size(); ++j)
 		{
@@ -221,9 +221,9 @@ void findNeighbors()
 				parts[j].neighbors.push_back(i);
 			}
 		}
-	}
+	}*/
 
-	//delete[] grid;
+	delete[] grid;
 }
 
 void enforceBoundary()
@@ -284,8 +284,6 @@ void update()
 {
 	if (iter == 0)
 	{
-		if (!GetAsyncKeyState(VK_RETURN))
-			return;
 		++iter;
 	}
 
@@ -411,7 +409,7 @@ void draw()
 	glScalef(2, 2, 1);
 	glScalef(1.f / mapW, 1.f / mapH, 1);
 
-	for (int y = 0; y < mapH; ++y)
+	/*for (int y = 0; y < mapH; ++y)
 		for (int x = 0; x < mapW; ++x)
 			fluid[x][y] = 0;
 	for (particle p : parts)
@@ -427,7 +425,7 @@ void draw()
 	}
 	for (int y = 0; y < mapH; ++y)
 		for (int x = 0; x < mapW; ++x)
-			fluid[x][y] = sqrt(fluid[x][y]);
+			fluid[x][y] = sqrt(fluid[x][y]);*/
 
 	glColor3f(0, 0, 1);
 	glBegin(GL_QUADS);
