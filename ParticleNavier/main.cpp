@@ -427,6 +427,7 @@ void draw()
 		for (int x = 0; x < mapW; ++x)
 			fluid[x][y] = sqrt(fluid[x][y]);*/
 
+
 	glColor3f(0, 0, 1);
 	glBegin(GL_QUADS);
 	{
